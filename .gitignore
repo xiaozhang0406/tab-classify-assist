@@ -1,0 +1,12 @@
+# 临时/构建产物
+node_modules/
+dist/
+*.zip
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

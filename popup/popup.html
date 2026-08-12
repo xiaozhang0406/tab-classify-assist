@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IceCola Tab Grouper</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <h1>标签页分组器</h1>
+    <p id="last-grouping">尚未分组</p>
+  </header>
+
+  <button id="btn-group" class="primary">一键分组</button>
+  <button id="btn-dedup" class="primary secondary">去重标签</button>
+
+  <section class="settings">
+    <div class="row">
+      <label for="interval">自动分组间隔（分钟）</label>
+      <input type="number" id="interval" min="1" max="120" />
+    </div>
+    <div class="row">
+      <label for="min-tabs">几个同域名才算一组</label>
+      <input type="number" id="min-tabs" min="2" max="10" />
+    </div>
+    <button id="btn-save-settings" class="ghost">保存设置</button>
+  </section>
+
+  <section id="session-list">
+    <h2>历史会话</h2>
+    <div id="sessions"><p class="empty">暂无记录，点"一键分组"开始</p></div>
+  </section>
+
+  <footer>由冰可乐自研 · v1.0.0</footer>
+  <script src="popup.js"></script>
+</body>
+</html>
