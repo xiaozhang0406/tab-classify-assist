@@ -120,10 +120,17 @@ async function runGrouping({ requireIdle = false } = {}) {
     if (aliveIds.has(id)) owned.set(id, domain);
   }
 
-  // tabId -> 所在组
+  // tabId -> 所在组 + groupId -> tabIds
+  // 注意：TabGroup 对象只有 id/title/color/collapsed/windowId，没有 tabIds，
+  // 必须用 tab.groupId 字段（未分组为 -1）来建映射
   const tabGroup = new Map();
-  for (const g of groups) {
-    for (const id of g.tabIds) tabGroup.set(id, g.id);
+  const tabsByGroup = new Map();
+  for (const t of tabs) {
+    if (t.groupId > -1) {
+      tabGroup.set(t.id, t.groupId);
+      if (!tabsByGroup.has(t.groupId)) tabsByGroup.set(t.groupId, []);
+      tabsByGroup.get(t.groupId).push(t.id);
+    }
   }
 
   // 正在出声（放视频/直播）的标签本轮不动，静音后再归组，做到无感
@@ -199,7 +206,7 @@ async function runGrouping({ requireIdle = false } = {}) {
   const session = {
     timestamp: Date.now(),
     tabCount: tabs.length,
-    groups: groups.map((g) => ({ domain: g.title, tabIds: g.tabIds, groupId: g.id })),
+    groups: groups.map((g) => ({ domain: g.title, tabIds: tabsByGroup.get(g.id) ?? [], groupId: g.id })),
     tabs: tabs.map((t) => ({
       id: t.id,
       url: t.url,
