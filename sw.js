@@ -12,6 +12,7 @@ const KEY_GROUP_META = 'autoGroupMeta';
 const STAGGER_MS = 80;              // 相邻批次间隔：把标签栏重排/关闭分散到多个帧
 const GROUP_CHUNK = 6;              // 每次 chrome.tabs.group 最多挪动多少个标签
 const CLOSE_CHUNK = 4;              // 每次 chrome.tabs.remove 最多关闭多少个标签
+const MOVE_CHUNK = 8;               // 每次 chrome.tabs.move 最多搬多少个标签（合并窗口用）
 const IDLE_THRESHOLD_SECONDS = 30;  // 自动执行前要求浏览器空闲这么久（避免打扰正在用的用户）
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -88,6 +89,15 @@ async function groupInChunks(tabIds, groupId = null) {
   return gid;
 }
 
+// 分批把标签搬进目标窗口（合并窗口用）：同样错峰，避免一次搬几十个造成卡顿
+async function moveInChunks(tabIds, windowId) {
+  for (let i = 0; i < tabIds.length; i += MOVE_CHUNK) {
+    const chunk = tabIds.slice(i, i + MOVE_CHUNK);
+    await chrome.tabs.move(chunk, { windowId, index: -1 });
+    await sleep(STAGGER_MS);
+  }
+}
+
 // 增量分组：只处理「未分组 / 未播放」的标签，已有组直接复用，
 // 标签栏没变化时整轮跳过。旧版每 5 分钟把全部标签重新分组一遍，是卡顿的根源。
 async function runGrouping({ requireIdle = false } = {}) {
@@ -139,6 +149,60 @@ async function runGrouping({ requireIdle = false } = {}) {
   // 只挑「未分组、未播放」的标签参与本轮
   const ungrouped = tabs.filter((t) => !tabGroup.has(t.id) && !audible.has(t.id));
 
+  // —— 可选：整理前先把所有窗口合并成一个，再统一分组 ——
+  // chrome.tabs.group 不允许组跨窗口，同域名分散在多个窗口时只能各建一组，
+  // 看起来就像每次只操作一个窗口。开启设置后，先把其它窗口的未分组标签
+  // 用 chrome.tabs.move 并入主窗口（正在播放/已分组的标签不挪），再统一整理。
+  let merged = 0; // 被搬空后关闭的窗口数
+  if (settings.mergeWindows && ungrouped.length > 0) {
+    const tabsByWindow = new Map();
+    for (const t of tabs) {
+      if (!tabsByWindow.has(t.windowId)) tabsByWindow.set(t.windowId, []);
+      tabsByWindow.get(t.windowId).push(t);
+    }
+    if (tabsByWindow.size > 1) {
+      // 目标窗口：优先用户当前聚焦的窗口（不能是隐身窗口，tabs 里查不到），否则选标签最多的
+      let targetId = null;
+      try {
+        const focused = await chrome.windows.getLastFocused();
+        if (focused?.id != null && tabsByWindow.has(focused.id)) targetId = focused.id;
+      } catch {
+        /* 拿不到焦点窗口时退回最大窗口 */
+      }
+      if (targetId == null) {
+        let max = 0;
+        for (const [wid, wTabs] of tabsByWindow) {
+          if (wTabs.length > max) { max = wTabs.length; targetId = wid; }
+        }
+      }
+      // 只搬「未分组、未播放」的标签；搬完更新内存里的 windowId，后续分桶直接沿用
+      for (const [wid, wTabs] of tabsByWindow) {
+        if (wid === targetId) continue;
+        const movable = wTabs.filter((t) => !t.audible && !tabGroup.has(t.id)).map((t) => t.id);
+        if (movable.length === 0) continue;
+        try {
+          await moveInChunks(movable, targetId);
+          for (const t of wTabs) if (movable.includes(t.id)) t.windowId = targetId;
+        } catch (err) {
+          console.warn(`[IceCola Tab Grouper] 合并窗口 ${wid} 失败:`, err);
+        }
+      }
+      // 关闭被搬空的窗口（目标窗口除外）
+      const countByWindow = new Map();
+      for (const t of tabs) countByWindow.set(t.windowId, (countByWindow.get(t.windowId) ?? 0) + 1);
+      for (const [wid, count] of countByWindow) {
+        if (wid !== targetId && count === 0) {
+          try {
+            await chrome.windows.remove(wid);
+            merged += 1;
+          } catch {
+            /* 窗口可能已被用户手动关闭，忽略 */
+          }
+        }
+      }
+    }
+  }
+
   // 按 (windowId, domain) 分桶：chrome.tabs.group 不允许跨窗口建组，
   // 之前按域名跨窗口分组会直接抛错，导致该域名整轮失败
   const buckets = new Map(); // `${windowId}|${domain}` -> { windowId, domain, tabIds }
@@ -171,7 +235,7 @@ async function runGrouping({ requireIdle = false } = {}) {
 
   // 没有任何需要动的标签 → 零操作返回，连快照都不写
   if (toCreate.length === 0 && toAppend.length === 0) {
-    return { ok: true, grouped: 0, tabs: tabs.length, closed: dedup.closed, skipped: true };
+    return { ok: true, grouped: 0, tabs: tabs.length, closed: dedup.closed, merged, skipped: true };
   }
 
   const created = [];
@@ -216,7 +280,7 @@ async function runGrouping({ requireIdle = false } = {}) {
   };
   await saveSession(session);
 
-  return { ok: true, grouped: created.length + toAppend.length, tabs: tabs.length, closed: dedup.closed, session };
+  return { ok: true, grouped: created.length + toAppend.length, tabs: tabs.length, closed: dedup.closed, merged, session };
 }
 
 async function restoreSession(timestamp) {

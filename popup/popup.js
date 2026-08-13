@@ -4,6 +4,7 @@ const btnSaveSettings = document.getElementById('btn-save-settings');
 const lastGroupingEl = document.getElementById('last-grouping');
 const intervalInput = document.getElementById('interval');
 const minTabsInput = document.getElementById('min-tabs');
+const mergeWindowsInput = document.getElementById('merge-windows');
 const sessionsEl = document.getElementById('sessions');
 let toastTimer = null;
 
@@ -98,6 +99,7 @@ async function loadSettings() {
   const s = settings || { autoIntervalMinutes: 5, minTabsForGroup: 2 };
   intervalInput.value = s.autoIntervalMinutes ?? 5;
   minTabsInput.value = s.minTabsForGroup ?? 2;
+  mergeWindowsInput.checked = s.mergeWindows !== false;
 }
 
 async function loadLastGrouping() {
@@ -114,7 +116,8 @@ btnGroup.addEventListener('click', async () => {
       if (res.queued) {
         showToast('正在整理中，完成后会自动补跑一次');
       } else {
-        showToast(`完成：${res.tabs} 个标签 → ${res.grouped} 组`);
+        const mergeNote = res.merged > 0 ? `已合并 ${res.merged} 个窗口 · ` : '';
+        showToast(`${mergeNote}完成：${res.tabs} 个标签 → ${res.grouped} 组`);
         loadLastGrouping();
         refreshSessions();
       }
@@ -162,7 +165,7 @@ btnSaveSettings.addEventListener('click', async () => {
   minTabsInput.value = minTabsForGroup;
   const res = await chrome.runtime.sendMessage({
     type: 'UPDATE_SETTINGS',
-    settings: { autoIntervalMinutes, minTabsForGroup },
+    settings: { autoIntervalMinutes, minTabsForGroup, mergeWindows: mergeWindowsInput.checked },
   });
   if (res?.ok) showToast('设置已保存');
   else showToast('保存失败: ' + (res?.error || '未知错误'));
