@@ -111,9 +111,13 @@ btnGroup.addEventListener('click', async () => {
   try {
     const res = await chrome.runtime.sendMessage({ type: 'GROUP_NOW' });
     if (res?.ok) {
-      showToast(`完成：${res.tabs} 个标签 → ${res.grouped} 组`);
-      loadLastGrouping();
-      refreshSessions();
+      if (res.queued) {
+        showToast('正在整理中，完成后会自动补跑一次');
+      } else {
+        showToast(`完成：${res.tabs} 个标签 → ${res.grouped} 组`);
+        loadLastGrouping();
+        refreshSessions();
+      }
     } else {
       showToast('分组失败: ' + (res?.error || '未知错误'));
     }
@@ -131,7 +135,9 @@ btnDedup.addEventListener('click', async () => {
   try {
     const res = await chrome.runtime.sendMessage({ type: 'DEDUP_NOW' });
     if (res?.ok) {
-      if (res.closed > 0) {
+      if (res.queued) {
+        showToast('正在执行中，稍后自动补跑');
+      } else if (res.closed > 0) {
         showToast(`已关闭 ${res.closed} 个重复标签`);
         loadLastGrouping();
         refreshSessions();

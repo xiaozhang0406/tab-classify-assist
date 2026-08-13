@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "IceCola Tab Grouper",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "自动按域名整理你的标签页，一键分组 + 会话持久化，再也不怕误关丢失。",
-  "permissions": ["tabs", "tabGroups", "storage", "alarms"],
+  "permissions": ["tabs", "tabGroups", "storage", "alarms", "idle"],
   "background": {
     "service_worker": "sw.js",
     "type": "module"
