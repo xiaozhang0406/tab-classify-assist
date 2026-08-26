@@ -8,35 +8,83 @@
 </head>
 <body>
   <header>
-    <h1>标签页分组器</h1>
+    <div class="title-row">
+      <h1>标签页分组器</h1>
+      <span class="badge" id="stat-total">0 标签</span>
+    </div>
     <p id="last-grouping">尚未分组</p>
   </header>
 
-  <button id="btn-group" class="primary">一键分组</button>
-  <button id="btn-dedup" class="primary secondary">去重标签</button>
-
-  <section class="settings">
-    <div class="row">
-      <label for="interval">自动分组间隔（分钟）</label>
-      <input type="number" id="interval" min="1" max="120" />
+  <!-- 实时概览状态卡片 -->
+  <section class="stats-card">
+    <div class="stat-item">
+      <span class="stat-val" id="stat-grouped">0</span>
+      <span class="stat-lbl">已分组</span>
     </div>
-    <div class="row">
-      <label for="min-tabs">几个同域名才算一组</label>
-      <input type="number" id="min-tabs" min="2" max="10" />
+    <div class="stat-item">
+      <span class="stat-val" id="stat-groups">0</span>
+      <span class="stat-lbl">分组数</span>
     </div>
-    <div class="row">
-      <label for="merge-windows">整理前合并所有窗口</label>
-      <input type="checkbox" id="merge-windows" checked />
+    <div class="stat-item">
+      <span class="stat-val" id="stat-duplicates">0</span>
+      <span class="stat-lbl">重复项</span>
     </div>
-    <button id="btn-save-settings" class="ghost">保存设置</button>
+    <div class="stat-item">
+      <span class="stat-val" id="stat-windows">1</span>
+      <span class="stat-lbl">窗口数</span>
+    </div>
   </section>
 
+  <!-- 核心操作按钮组 -->
+  <button id="btn-group" class="primary">一键智能分组 <span class="shortcut-tip">Alt+Shift+G</span></button>
+  <div class="btn-row">
+    <button id="btn-dedup" class="secondary">去重标签 <span class="shortcut-tip">Alt+Shift+D</span></button>
+    <button id="btn-ungroup" class="secondary danger">一键解散</button>
+  </div>
+
+  <!-- 偏好设置面板 -->
+  <details class="settings-accordion">
+    <summary>⚙️ 整理偏好与规则设置</summary>
+    <section class="settings">
+      <div class="row">
+        <label for="auto-group-enabled">开启后台自动整理</label>
+        <input type="checkbox" id="auto-group-enabled" checked />
+      </div>
+      <div class="row">
+        <label for="interval">自动整理间隔（分钟）</label>
+        <input type="number" id="interval" min="1" max="120" />
+      </div>
+      <div class="row">
+        <label for="min-tabs">同域名建组阈值（标签数）</label>
+        <input type="number" id="min-tabs" min="2" max="10" />
+      </div>
+      <div class="row">
+        <label for="merge-windows">整理前合并所有窗口</label>
+        <input type="checkbox" id="merge-windows" checked />
+      </div>
+      <div class="row">
+        <label for="auto-collapse">分组后自动折叠</label>
+        <input type="checkbox" id="auto-collapse" />
+      </div>
+      <div class="column">
+        <label for="excluded-domains">排除域名（逗号分隔，如 localhost, *.internal.com）</label>
+        <input type="text" id="excluded-domains" placeholder="localhost, 127.0.0.1" />
+      </div>
+      <button id="btn-save-settings" class="ghost">保存设置</button>
+    </section>
+  </details>
+
+  <!-- 历史会话快照与恢复 -->
   <section id="session-list">
-    <h2>历史会话</h2>
-    <div id="sessions"><p class="empty">暂无记录，点"一键分组"开始</p></div>
+    <div class="section-header">
+      <h2>历史会话快照</h2>
+      <button id="btn-clear-sessions" class="text-btn">清空</button>
+    </div>
+    <div id="sessions"><p class="empty">暂无记录，点"一键智能分组"开始</p></div>
   </section>
 
-  <footer>由冰可乐自研 · v1.3.0</footer>
-  <script src="popup.js"></script>
+  <footer>由冰可乐自研 · v2.0.0</footer>
+  <script type="module" src="popup.js"></script>
 </body>
 </html>
+
