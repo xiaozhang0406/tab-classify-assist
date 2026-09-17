@@ -182,6 +182,81 @@ button.ghost:hover {
   background: rgba(137, 180, 250, 0.08);
 }
 
+/* 当前活动标签组板块 */
+.live-groups-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+}
+
+.live-group-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.live-group-item:last-child {
+  border-bottom: none;
+}
+
+.live-group-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.group-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.group-name {
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 190px;
+}
+
+.live-group-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.icon-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.icon-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.icon-btn.danger:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.empty-hint {
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+  padding: 6px 0;
+}
+
 /* 设置折叠面板 */
 .settings-accordion {
   border: 1px solid var(--border);
@@ -254,6 +329,19 @@ button.ghost:hover {
   height: 16px;
 }
 
+.settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+.settings-status {
+  font-size: 11px;
+  color: var(--success);
+  transition: opacity 0.2s;
+}
+
 /* 会话列表 */
 .section-header {
   display: flex;
@@ -262,7 +350,7 @@ button.ghost:hover {
   margin-bottom: 6px;
 }
 
-#session-list h2 {
+#session-list h2, .live-groups-section h2 {
   font-size: 12px;
   color: var(--muted);
 }
@@ -293,6 +381,11 @@ button.ghost:hover {
   border-radius: 8px;
   padding: 8px 10px;
   margin-bottom: 8px;
+  transition: border-color 0.2s;
+}
+
+.session-item.session-pinned {
+  border-color: var(--warning);
 }
 
 .session-item .meta {
@@ -302,10 +395,24 @@ button.ghost:hover {
   margin-bottom: 6px;
 }
 
+.time-area {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .session-item .time {
   color: var(--text);
   font-weight: 600;
   font-size: 12px;
+}
+
+.session-tag {
+  font-size: 10px;
+  background: rgba(137, 180, 250, 0.15);
+  color: var(--accent);
+  padding: 1px 5px;
+  border-radius: 4px;
 }
 
 .session-item .count {
@@ -334,15 +441,15 @@ button.ghost:hover {
   opacity: 0.8;
 }
 
-.chip-blue   { background: #1e3a8a; color: #93c5fd; border-color: #3b82f6; }
-.chip-cyan   { background: #164e63; color: #67e8f9; border-color: #06b6d4; }
-.chip-green  { background: #14532d; color: #86efac; border-color: #22c55e; }
-.chip-yellow { background: #713f12; color: #fde047; border-color: #eab308; }
-.chip-orange { background: #7c2d12; color: #fdba74; border-color: #f97316; }
-.chip-red    { background: #7f1d1d; color: #fca5a5; border-color: #ef4444; }
-.chip-pink   { background: #831843; color: #f472b6; border-color: #ec4899; }
-.chip-purple { background: #581c87; color: #d8b4fe; border-color: #a855f7; }
-.chip-grey   { background: #374151; color: #d1d5db; border-color: #6b7280; }
+.dot-blue, .chip-blue     { background: #1e3a8a; color: #93c5fd; border-color: #3b82f6; }
+.dot-cyan, .chip-cyan     { background: #164e63; color: #67e8f9; border-color: #06b6d4; }
+.dot-green, .chip-green   { background: #14532d; color: #86efac; border-color: #22c55e; }
+.dot-yellow, .chip-yellow { background: #713f12; color: #fde047; border-color: #eab308; }
+.dot-orange, .chip-orange { background: #7c2d12; color: #fdba74; border-color: #f97316; }
+.dot-red, .chip-red       { background: #7f1d1d; color: #fca5a5; border-color: #ef4444; }
+.dot-pink, .chip-pink     { background: #831843; color: #f472b6; border-color: #ec4899; }
+.dot-purple, .chip-purple { background: #581c87; color: #d8b4fe; border-color: #a855f7; }
+.dot-grey, .chip-grey     { background: #374151; color: #d1d5db; border-color: #6b7280; }
 
 /* 详情抽屉 */
 .session-details {
@@ -398,6 +505,16 @@ button.ghost:hover {
   color: var(--accent);
 }
 
+.session-item .actions button.pin-btn.active {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.session-item .actions button.pin-btn:hover {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
 .session-item .actions button.delete:hover {
   border-color: var(--danger);
   color: var(--danger);
@@ -431,4 +548,3 @@ footer {
 #toast.show {
   opacity: 1;
 }
-
