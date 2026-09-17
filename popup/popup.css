@@ -231,6 +231,12 @@ button.ghost:hover {
   gap: 4px;
 }
 
+.header-btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .icon-btn {
   background: transparent;
   border: 1px solid var(--border);
@@ -243,6 +249,19 @@ button.ghost:hover {
 .icon-btn:hover {
   color: var(--text);
   border-color: var(--accent);
+}
+
+.icon-btn.cool-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.text-btn.cool-btn {
+  color: var(--accent);
+}
+
+.text-btn.cool-btn:hover {
+  color: var(--accent-hover);
 }
 
 .icon-btn.danger:hover {
@@ -503,6 +522,11 @@ button.ghost:hover {
 .session-item .actions button.restore:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.session-item .actions button.export-btn:hover {
+  border-color: var(--success);
+  color: var(--success);
 }
 
 .session-item .actions button.pin-btn.active {

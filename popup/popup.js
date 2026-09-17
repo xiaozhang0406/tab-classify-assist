@@ -5,6 +5,7 @@ import {
   clearAllSessions,
   getLastGrouping,
 } from '../lib/storage.js';
+import { sessionToMarkdown } from '../lib/export.js';
 
 // DOM 元素引用
 const btnGroup = document.getElementById('btn-group');
@@ -13,6 +14,7 @@ const btnUngroup = document.getElementById('btn-ungroup');
 const btnSaveSettings = document.getElementById('btn-save-settings');
 const btnClearSessions = document.getElementById('btn-clear-sessions');
 const btnRefreshGroups = document.getElementById('btn-refresh-groups');
+const btnDiscardAll = document.getElementById('btn-discard-all');
 const lastGroupingEl = document.getElementById('last-grouping');
 const settingsStatusEl = document.getElementById('settings-status');
 
@@ -28,8 +30,10 @@ const autoGroupEnabledInput = document.getElementById('auto-group-enabled');
 const intervalInput = document.getElementById('interval');
 const minTabsInput = document.getElementById('min-tabs');
 const useRootDomainInput = document.getElementById('use-root-domain');
+const useFriendlyNamesInput = document.getElementById('use-friendly-names');
 const mergeWindowsInput = document.getElementById('merge-windows');
 const autoCollapseInput = document.getElementById('auto-collapse');
+const customAliasesInput = document.getElementById('custom-aliases');
 const excludedDomainsInput = document.getElementById('excluded-domains');
 
 // 列表容器
@@ -49,13 +53,39 @@ function showToast(msg) {
   toast.textContent = msg;
   toast.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 2400);
 }
 
 function formatTime(ts) {
   const d = new Date(ts);
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// 解析别名配置字符串转为 Object
+function parseAliases(str) {
+  if (!str || typeof str !== 'string') return {};
+  const res = {};
+  const pairs = str.split(/[,，]/);
+  for (const pair of pairs) {
+    const trimmed = pair.trim();
+    if (!trimmed) continue;
+    const parts = trimmed.split(/[:：]/);
+    if (parts.length >= 2) {
+      const key = parts[0].trim().toLowerCase();
+      const val = parts.slice(1).join(':').trim();
+      if (key && val) res[key] = val;
+    }
+  }
+  return res;
+}
+
+// 序列化别名 Object 为字符串
+function stringifyAliases(obj) {
+  if (!obj || typeof obj !== 'object') return '';
+  return Object.entries(obj)
+    .map(([k, v]) => `${k}:${v}`)
+    .join(', ');
 }
 
 // 刷新实时标签与分组统计
@@ -91,13 +121,29 @@ async function refreshLiveGroups() {
         dot.className = `group-dot dot-${g.color || 'blue'}`;
         const name = document.createElement('span');
         name.className = 'group-name';
-        name.textContent = `${g.title} (${g.tabCount})`;
+        const frozenHint = g.discardedCount > 0 ? ` [❄️${g.discardedCount}]` : '';
+        name.textContent = `${g.title} (${g.tabCount}${frozenHint})`;
+        name.title = `${g.title} (共 ${g.tabCount} 个标签${g.discardedCount ? '，已休眠 ' + g.discardedCount + ' 个' : ''})`;
         left.appendChild(dot);
         left.appendChild(name);
 
         const actions = document.createElement('div');
         actions.className = 'live-group-actions';
 
+        // ❄️ 单组休眠/释放内存
+        const freezeBtn = document.createElement('button');
+        freezeBtn.className = 'icon-btn cool-btn';
+        freezeBtn.title = '休眠本组非活跃标签以释放内存';
+        freezeBtn.textContent = '❄️';
+        freezeBtn.addEventListener('click', async () => {
+          const r = await chrome.runtime.sendMessage({ type: 'DISCARD_GROUP', groupId: g.id });
+          if (r?.ok) {
+            showToast(`已休眠 [${g.title}] ${r.discarded} 个标签，内存已释放`);
+            refreshLiveGroups();
+          }
+        });
+
+        // 折叠 / 展开
         const toggleBtn = document.createElement('button');
         toggleBtn.className = 'icon-btn';
         toggleBtn.title = g.collapsed ? '展开标签组' : '折叠标签组';
@@ -107,6 +153,7 @@ async function refreshLiveGroups() {
           refreshLiveGroups();
         });
 
+        // 单独解散此组
         const ungroupBtn = document.createElement('button');
         ungroupBtn.className = 'icon-btn danger';
         ungroupBtn.title = '解散此标签组';
@@ -118,6 +165,7 @@ async function refreshLiveGroups() {
           refreshStats();
         });
 
+        actions.appendChild(freezeBtn);
         actions.appendChild(toggleBtn);
         actions.appendChild(ungroupBtn);
         item.appendChild(left);
@@ -220,10 +268,11 @@ async function refreshSessions() {
     details.appendChild(tabList);
     item.appendChild(details);
 
-    // 底部操作按钮
+    // 底部操作按钮栏
     const actions = document.createElement('div');
     actions.className = 'actions';
 
+    // 恢复全部
     const restoreBtn = document.createElement('button');
     restoreBtn.className = 'restore';
     restoreBtn.textContent = '恢复全部';
@@ -238,6 +287,29 @@ async function refreshSessions() {
       }
     });
 
+    // 📤 导出 Markdown 至剪切板
+    const exportBtn = document.createElement('button');
+    exportBtn.className = 'export-btn';
+    exportBtn.textContent = '复制 MD';
+    exportBtn.title = '复制格式化 Markdown 知识库列表至剪贴板';
+    exportBtn.addEventListener('click', async () => {
+      const md = sessionToMarkdown(snap);
+      try {
+        await navigator.clipboard.writeText(md);
+        showToast('✓ Markdown 快照已复制至剪贴板');
+      } catch {
+        // Fallback for clipboard
+        const input = document.createElement('textarea');
+        input.value = md;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+        showToast('✓ Markdown 快照已复制至剪贴板');
+      }
+    });
+
+    // 收藏 / 锁定
     const pinBtn = document.createElement('button');
     pinBtn.className = `pin-btn ${snap.pinned ? 'active' : ''}`;
     pinBtn.textContent = snap.pinned ? '已收藏' : '收藏';
@@ -250,6 +322,7 @@ async function refreshSessions() {
       }
     });
 
+    // 删除
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'delete';
     deleteBtn.textContent = '删除';
@@ -259,6 +332,7 @@ async function refreshSessions() {
     });
 
     actions.appendChild(restoreBtn);
+    actions.appendChild(exportBtn);
     actions.appendChild(pinBtn);
     actions.appendChild(deleteBtn);
     item.appendChild(actions);
@@ -273,8 +347,10 @@ async function loadSettings() {
   intervalInput.value = s.autoIntervalMinutes ?? 5;
   minTabsInput.value = s.minTabsForGroup ?? 2;
   useRootDomainInput.checked = s.useRootDomain !== false;
+  useFriendlyNamesInput.checked = s.useFriendlyNames !== false;
   mergeWindowsInput.checked = Boolean(s.mergeWindows);
   autoCollapseInput.checked = Boolean(s.autoCollapse);
+  customAliasesInput.value = stringifyAliases(s.customAliases);
   excludedDomainsInput.value = Array.isArray(s.excludedDomains) ? s.excludedDomains.join(', ') : '';
 }
 
@@ -284,8 +360,10 @@ async function saveCurrentSettings({ silent = false } = {}) {
   const autoIntervalMinutes = Math.max(1, Math.min(120, Number(intervalInput.value) || 5));
   const minTabsForGroup = Math.max(2, Math.min(10, Number(minTabsInput.value) || 2));
   const useRootDomain = useRootDomainInput.checked;
+  const useFriendlyNames = useFriendlyNamesInput.checked;
   const mergeWindows = mergeWindowsInput.checked;
   const autoCollapse = autoCollapseInput.checked;
+  const customAliases = parseAliases(customAliasesInput.value);
   const excludedDomains = excludedDomainsInput.value
     .split(',')
     .map((s) => s.trim().toLowerCase())
@@ -301,8 +379,10 @@ async function saveCurrentSettings({ silent = false } = {}) {
       autoIntervalMinutes,
       minTabsForGroup,
       useRootDomain,
+      useFriendlyNames,
       mergeWindows,
       autoCollapse,
+      customAliases,
       excludedDomains,
     },
   });
@@ -325,13 +405,15 @@ async function saveCurrentSettings({ silent = false } = {}) {
 }
 
 // 为输入项绑定自动保存触发器
-[autoGroupEnabledInput, useRootDomainInput, mergeWindowsInput, autoCollapseInput].forEach((el) => {
+[autoGroupEnabledInput, useRootDomainInput, useFriendlyNamesInput, mergeWindowsInput, autoCollapseInput].forEach((el) => {
   el?.addEventListener('change', () => saveCurrentSettings({ silent: true }));
 });
 [intervalInput, minTabsInput].forEach((el) => {
   el?.addEventListener('input', () => saveCurrentSettings({ silent: true }));
 });
-excludedDomainsInput?.addEventListener('blur', () => saveCurrentSettings({ silent: true }));
+[customAliasesInput, excludedDomainsInput].forEach((el) => {
+  el?.addEventListener('blur', () => saveCurrentSettings({ silent: true }));
+});
 
 // 加载上次分组时间
 async function loadLastGrouping() {
@@ -413,6 +495,28 @@ btnUngroup.addEventListener('click', async () => {
     showToast('错误: ' + err.message);
   } finally {
     btnUngroup.disabled = false;
+  }
+});
+
+// ❄️ 一键休眠所有后台标签组
+btnDiscardAll?.addEventListener('click', async () => {
+  btnDiscardAll.disabled = true;
+  try {
+    const res = await chrome.runtime.sendMessage({ type: 'DISCARD_ALL' });
+    if (res?.ok) {
+      if (res.discarded > 0) {
+        showToast(`已休眠 ${res.discarded} 个后台标签，内存大幅释放！`);
+      } else {
+        showToast('没有可休眠的后台标签');
+      }
+      refreshLiveGroups();
+    } else {
+      showToast('休眠失败: ' + (res?.error || '未知错误'));
+    }
+  } catch (err) {
+    showToast('错误: ' + err.message);
+  } finally {
+    btnDiscardAll.disabled = false;
   }
 });
 

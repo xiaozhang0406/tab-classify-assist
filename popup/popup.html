@@ -46,7 +46,10 @@
   <section class="live-groups-section" id="live-groups-section">
     <div class="section-header">
       <h2>当前窗口标签组</h2>
-      <button id="btn-refresh-groups" class="text-btn">刷新</button>
+      <div class="header-btns">
+        <button id="btn-discard-all" class="text-btn cool-btn" title="休眠当前所有后台标签组以释放内存">❄️ 休眠后台组</button>
+        <button id="btn-refresh-groups" class="text-btn">刷新</button>
+      </div>
     </div>
     <div id="live-groups-list"><p class="empty-hint">当前窗口尚无标签分组</p></div>
   </section>
@@ -72,12 +75,20 @@
         <input type="checkbox" id="use-root-domain" checked />
       </div>
       <div class="row">
+        <label for="use-friendly-names">启用站点中文别名 (如 B站、知乎)</label>
+        <input type="checkbox" id="use-friendly-names" checked />
+      </div>
+      <div class="row">
         <label for="merge-windows">整理前合并所有窗口</label>
         <input type="checkbox" id="merge-windows" />
       </div>
       <div class="row">
         <label for="auto-collapse">分组后自动折叠</label>
         <input type="checkbox" id="auto-collapse" />
+      </div>
+      <div class="column">
+        <label for="custom-aliases">自定义别名映射（例如 work.com:工作, blog.me:博客）</label>
+        <input type="text" id="custom-aliases" placeholder="work.com:工作, mycorp.cn:内网" />
       </div>
       <div class="column">
         <label for="excluded-domains">排除域名（逗号分隔，如 localhost, *.internal.com）</label>
@@ -99,7 +110,7 @@
     <div id="sessions"><p class="empty">暂无记录，点"一键智能分组"开始</p></div>
   </section>
 
-  <footer>由冰可乐自研 · v2.1.0</footer>
+  <footer>由冰可乐自研 · v2.2.0</footer>
   <script type="module" src="popup.js"></script>
 </body>
 </html>

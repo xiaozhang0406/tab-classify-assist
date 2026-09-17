@@ -3,6 +3,7 @@ import { nextColor } from './lib/colors.js';
 import { getSettings, saveSession, setSettings, clearAllSessions, togglePinSession, renameSession } from './lib/storage.js';
 import { findDuplicates } from './lib/dedupe.js';
 import { isInternalOrBlankUrl, extractDomain } from './lib/domain.js';
+import { getGroupTitle } from './lib/alias.js';
 
 const ALARM_NAME = 'autoGroup';
 // 记录「这个扩展创建过的组」：{ [groupId]: domain }
@@ -89,7 +90,7 @@ async function captureSessionSnapshot(actionTitle = null, { force = false } = {}
   for (const t of tabs) {
     if (t.groupId > -1) {
       if (!tabsByGroup.has(t.groupId)) tabsByGroup.set(t.groupId, []);
-      tabsByGroup.get(t.groupId).push(t.id);
+      tabsByGroup.get(t.groupId).push(t);
     }
   }
 
@@ -111,11 +112,46 @@ async function captureSessionSnapshot(actionTitle = null, { force = false } = {}
       groupTitle: t.groupId > -1 ? (groupById.get(t.groupId)?.title || meta[t.groupId] || null) : null,
       groupColor: t.groupId > -1 ? (groupById.get(t.groupId)?.color || null) : null,
       pinned: Boolean(t.pinned),
+      discarded: Boolean(t.discarded),
     })),
   };
 
   await saveSession(session, { force });
   return session;
+}
+
+// 休眠/冻结指定标签组内的所有非活跃标签以释放系统内存
+async function discardGroup(groupId) {
+  const tabs = await chrome.tabs.query({ groupId });
+  let count = 0;
+  for (const t of tabs) {
+    if (!t.active && !t.audible && !t.discarded) {
+      try {
+        await chrome.tabs.discard(t.id);
+        count += 1;
+      } catch {
+        /* 忽略个别无法休眠的系统页面 */
+      }
+    }
+  }
+  return { ok: true, discarded: count };
+}
+
+// 休眠所有普通后台标签组（保留活跃与发声标签）
+async function discardAllBackgroundGroups() {
+  const tabs = await chrome.tabs.query({ windowType: 'normal' });
+  let count = 0;
+  for (const t of tabs) {
+    if (t.groupId > -1 && !t.active && !t.audible && !t.discarded) {
+      try {
+        await chrome.tabs.discard(t.id);
+        count += 1;
+      } catch {
+        /* 忽略个别无法休眠页面 */
+      }
+    }
+  }
+  return { ok: true, discarded: count };
 }
 
 // 去重：执行前自动留存快照，分批关闭重复标签
@@ -252,7 +288,7 @@ async function runGrouping({ requireIdle = false } = {}) {
     if (t.groupId > -1) {
       tabGroup.set(t.id, t.groupId);
       if (!tabsByGroup.has(t.groupId)) tabsByGroup.set(t.groupId, []);
-      tabsByGroup.get(t.groupId).push(t.id);
+      tabsByGroup.get(t.groupId).push(t);
     }
   }
 
@@ -368,12 +404,19 @@ async function runGrouping({ requireIdle = false } = {}) {
       if (groupId != null) {
         const color = nextColor(domain, assignedColors);
         assignedColors.push(color);
-        const updateParams = { title: domain, color };
+
+        // 友好别名映射（例如 bilibili.com -> B站）
+        const title = getGroupTitle(domain, {
+          useFriendlyNames: settings.useFriendlyNames !== false,
+          customAliases: settings.customAliases,
+        });
+
+        const updateParams = { title, color };
         if (settings.autoCollapse) {
           updateParams.collapsed = true;
         }
         await chrome.tabGroups.update(groupId, updateParams);
-        created.push({ domain, tabIds, groupId });
+        created.push({ domain, tabIds, groupId, title });
       }
     } catch (err) {
       console.warn('[IceCola Tab Grouper] 新建分组失败 ' + domain + ':', err);
@@ -526,14 +569,19 @@ async function getLiveGroups() {
     }
   }
 
-  return groups.map((g) => ({
-    id: g.id,
-    title: g.title || '未命名分组',
-    color: g.color,
-    collapsed: g.collapsed,
-    tabCount: (tabsByGroup.get(g.id) ?? []).length,
-    tabs: (tabsByGroup.get(g.id) ?? []).map((t) => ({ id: t.id, title: t.title, url: t.url })),
-  }));
+  return groups.map((g) => {
+    const groupTabs = tabsByGroup.get(g.id) ?? [];
+    const discardedCount = groupTabs.filter((t) => t.discarded).length;
+    return {
+      id: g.id,
+      title: g.title || '未命名分组',
+      color: g.color,
+      collapsed: g.collapsed,
+      tabCount: groupTabs.length,
+      discardedCount,
+      tabs: groupTabs.map((t) => ({ id: t.id, title: t.title, url: t.url, discarded: Boolean(t.discarded) })),
+    };
+  });
 }
 
 // 快捷键命令监听
@@ -595,6 +643,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg?.type === 'UNGROUP_ALL') {
     runExclusive(runUngroupAll)
+      .then((result) => sendResponse(result))
+      .catch((err) => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+  if (msg?.type === 'DISCARD_GROUP') {
+    discardGroup(msg.groupId)
+      .then((result) => sendResponse(result))
+      .catch((err) => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+  if (msg?.type === 'DISCARD_ALL') {
+    discardAllBackgroundGroups()
       .then((result) => sendResponse(result))
       .catch((err) => sendResponse({ ok: false, error: String(err) }));
     return true;
