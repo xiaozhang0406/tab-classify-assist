@@ -1,0 +1,16 @@
+{
+  "name": "icecola-tab-grouper",
+  "version": "2.1.0",
+  "description": "自动按域名整理你的标签页，一键分组 + 会话持久化，再也不怕误关丢失。",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/**/*.test.js"
+  },
+  "keywords": [
+    "chrome-extension",
+    "tab-groups",
+    "tab-management"
+  ],
+  "author": "xiaozhang0406",
+  "license": "MIT"
+}

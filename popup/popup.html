@@ -42,6 +42,15 @@
     <button id="btn-ungroup" class="secondary danger">一键解散</button>
   </div>
 
+  <!-- 当前活动标签组管理卡片 -->
+  <section class="live-groups-section" id="live-groups-section">
+    <div class="section-header">
+      <h2>当前窗口标签组</h2>
+      <button id="btn-refresh-groups" class="text-btn">刷新</button>
+    </div>
+    <div id="live-groups-list"><p class="empty-hint">当前窗口尚无标签分组</p></div>
+  </section>
+
   <!-- 偏好设置面板 -->
   <details class="settings-accordion">
     <summary>⚙️ 整理偏好与规则设置</summary>
@@ -59,8 +68,12 @@
         <input type="number" id="min-tabs" min="2" max="10" />
       </div>
       <div class="row">
+        <label for="use-root-domain">按主域名聚合 (如 bilibili.com)</label>
+        <input type="checkbox" id="use-root-domain" checked />
+      </div>
+      <div class="row">
         <label for="merge-windows">整理前合并所有窗口</label>
-        <input type="checkbox" id="merge-windows" checked />
+        <input type="checkbox" id="merge-windows" />
       </div>
       <div class="row">
         <label for="auto-collapse">分组后自动折叠</label>
@@ -70,7 +83,10 @@
         <label for="excluded-domains">排除域名（逗号分隔，如 localhost, *.internal.com）</label>
         <input type="text" id="excluded-domains" placeholder="localhost, 127.0.0.1" />
       </div>
-      <button id="btn-save-settings" class="ghost">保存设置</button>
+      <div class="settings-footer">
+        <span id="settings-status" class="settings-status"></span>
+        <button id="btn-save-settings" class="ghost">保存设置</button>
+      </div>
     </section>
   </details>
 
@@ -83,8 +99,7 @@
     <div id="sessions"><p class="empty">暂无记录，点"一键智能分组"开始</p></div>
   </section>
 
-  <footer>由冰可乐自研 · v2.0.0</footer>
+  <footer>由冰可乐自研 · v2.1.0</footer>
   <script type="module" src="popup.js"></script>
 </body>
 </html>
-
