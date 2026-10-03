@@ -1,8 +1,6 @@
 import {
   getSettings,
   listSessions,
-  deleteSession,
-  clearAllSessions,
   getLastGrouping,
 } from '../lib/storage.js';
 
@@ -12,6 +10,7 @@ const btnDedup = document.getElementById('btn-dedup');
 const btnUngroup = document.getElementById('btn-ungroup');
 const btnSaveSettings = document.getElementById('btn-save-settings');
 const btnClearSessions = document.getElementById('btn-clear-sessions');
+const btnSaveSession = document.getElementById('btn-save-session');
 const btnRefreshGroups = document.getElementById('btn-refresh-groups');
 const lastGroupingEl = document.getElementById('last-grouping');
 const settingsStatusEl = document.getElementById('settings-status');
@@ -187,6 +186,7 @@ async function refreshSessions() {
             type: 'RESTORE_SESSION',
             timestamp: Number(ts),
             domain: g.domain,
+            groupId: g.groupId,
           });
           if (res?.ok) {
             showToast(`已恢复分组 [${g.domain}] (${res.restored} 标签)`);
@@ -230,7 +230,7 @@ async function refreshSessions() {
     restoreBtn.addEventListener('click', async () => {
       const res = await chrome.runtime.sendMessage({ type: 'RESTORE_SESSION', timestamp: Number(ts) });
       if (res?.ok) {
-        showToast(`已恢复 ${res.restored} 个标签`);
+        showToast(`已恢复 ${res.restored} 个标签${res.failed ? `，${res.failed} 个失败，可重试` : ''}`);
         refreshLiveGroups();
         refreshStats();
       } else {
@@ -254,12 +254,29 @@ async function refreshSessions() {
     deleteBtn.className = 'delete';
     deleteBtn.textContent = '删除';
     deleteBtn.addEventListener('click', async () => {
-      await deleteSession(ts);
-      refreshSessions();
+      const res = await chrome.runtime.sendMessage({ type: 'DELETE_SESSION', timestamp: ts });
+      if (res?.ok) refreshSessions();
+      else showToast('删除失败: ' + (res?.error || '未知错误'));
+    });
+
+    const exportBtn = document.createElement('button');
+    exportBtn.textContent = '导出 JSON';
+    exportBtn.title = '保存到本地，文件包含网页地址，请妥善保管';
+    exportBtn.addEventListener('click', () => {
+      const backup = { format: 'icecola-tab-session', version: 1, session: snap };
+      const url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `icecola-session-${ts}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     });
 
     actions.appendChild(restoreBtn);
     actions.appendChild(pinBtn);
+    actions.appendChild(exportBtn);
     actions.appendChild(deleteBtn);
     item.appendChild(actions);
     sessionsEl.appendChild(item);
@@ -428,9 +445,25 @@ btnRefreshGroups?.addEventListener('click', () => {
 // 清空历史快照
 btnClearSessions.addEventListener('click', async () => {
   if (!confirm('确定清空所有保存的历史会话快照吗？')) return;
-  await clearAllSessions();
-  refreshSessions();
-  showToast('历史快照已清空');
+  const res = await chrome.runtime.sendMessage({ type: 'CLEAR_SESSIONS' });
+  if (res?.ok) {
+    refreshSessions();
+    showToast('历史快照已清空');
+  } else showToast('清空失败: ' + (res?.error || '未知错误'));
+});
+
+btnSaveSession.addEventListener('click', async () => {
+  btnSaveSession.disabled = true;
+  try {
+    const res = await chrome.runtime.sendMessage({ type: 'SAVE_SESSION' });
+    if (!res?.ok) throw new Error(res?.error || '保存失败');
+    await refreshSessions();
+    showToast(`已保存 ${res.session.tabCount} 个标签`);
+  } catch (err) {
+    showToast('保存失败: ' + err.message);
+  } finally {
+    btnSaveSession.disabled = false;
+  }
 });
 
 // 初始化加载

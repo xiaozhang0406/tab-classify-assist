@@ -1,6 +1,6 @@
 import { groupByDomain } from './lib/grouper.js';
 import { nextColor } from './lib/colors.js';
-import { getSettings, saveSession, setSettings, clearAllSessions, togglePinSession, renameSession } from './lib/storage.js';
+import { getSettings, saveSession, setSettings, clearAllSessions, deleteSession, togglePinSession, renameSession } from './lib/storage.js';
 import { findDuplicates } from './lib/dedupe.js';
 import { isInternalOrBlankUrl, extractDomain } from './lib/domain.js';
 
@@ -101,10 +101,14 @@ async function captureSessionSnapshot(actionTitle = null, { force = false } = {}
       domain: g.title || meta[g.id] || '',
       color: g.color,
       groupId: g.id,
+      windowId: g.windowId,
+      collapsed: Boolean(g.collapsed),
       tabCount: (tabsByGroup.get(g.id) ?? []).length,
     })),
     tabs: tabs.map((t) => ({
       id: t.id,
+      windowId: t.windowId,
+      active: Boolean(t.active),
       url: t.url,
       title: t.title,
       groupId: t.groupId > -1 ? t.groupId : null,
@@ -119,7 +123,7 @@ async function captureSessionSnapshot(actionTitle = null, { force = false } = {}
 }
 
 // 去重：执行前自动留存快照，分批关闭重复标签
-async function runDedup() {
+export async function runDedup() {
   const tabs = await chrome.tabs.query({ windowType: 'normal' });
   const toClose = findDuplicates(tabs, { skipAudible: true });
   if (toClose.length === 0) {
@@ -132,11 +136,18 @@ async function runDedup() {
     await captureSessionSnapshot('去重安全快照 (Pre-Dedup)', { force: true });
   } catch (err) {
     console.warn('[IceCola Tab Grouper] 保存去重前快照异常:', err);
+    return { ok: false, closed: 0, error: '快照保存失败，已停止去重以保护标签。请导出或清理旧快照后重试。' };
   }
 
   let closed = 0;
   for (let i = 0; i < toClose.length; i += CLOSE_CHUNK) {
-    const chunk = toClose.slice(i, i + CLOSE_CHUNK);
+    const liveTabs = await chrome.tabs.query({ windowType: 'normal' });
+    const stillDuplicate = new Set(findDuplicates(liveTabs, { skipAudible: true }));
+    const originalUrls = new Map(tabs.map((tab) => [tab.id, tab.url]));
+    const liveById = new Map(liveTabs.map((tab) => [tab.id, tab]));
+    const chunk = toClose.slice(i, i + CLOSE_CHUNK).filter((id) =>
+      stillDuplicate.has(id) && liveById.get(id)?.url === originalUrls.get(id));
+    if (chunk.length === 0) continue;
     try {
       await chrome.tabs.remove(chunk);
       closed += chunk.length;
@@ -173,20 +184,19 @@ async function runUngroupAll() {
 }
 
 // 分批建组/并入：错峰挪动标签
-async function groupInChunks(tabIds, groupId = null) {
+export async function groupInChunks(tabIds, groupId = null, windowId = null) {
   let gid = groupId;
+  const groupOptions = (ids) => gid == null
+    ? { tabIds: ids, ...(windowId == null ? {} : { createProperties: { windowId } }) }
+    : { tabIds: ids, groupId: gid };
   for (let i = 0; i < tabIds.length; i += GROUP_CHUNK) {
     const chunk = tabIds.slice(i, i + GROUP_CHUNK);
     try {
-      gid = gid == null
-        ? await chrome.tabs.group({ tabIds: chunk })
-        : await chrome.tabs.group({ tabIds: chunk, groupId: gid });
+      gid = await chrome.tabs.group(groupOptions(chunk));
     } catch {
       for (const id of chunk) {
         try {
-          gid = gid == null
-            ? await chrome.tabs.group({ tabIds: [id] })
-            : await chrome.tabs.group({ tabIds: [id], groupId: gid });
+          gid = await chrome.tabs.group(groupOptions([id]));
         } catch {
           /* 忽略已不存在的标签 */
         }
@@ -229,6 +239,7 @@ async function runGrouping({ requireIdle = false } = {}) {
 
   const settings = await getSettings();
   const dedup = await runDedup();
+  if (!dedup.ok) return dedup;
 
   const [tabs, groups, meta] = await Promise.all([
     chrome.tabs.query({ windowType: 'normal' }),
@@ -362,9 +373,9 @@ async function runGrouping({ requireIdle = false } = {}) {
 
   const created = [];
   const assignedColors = [];
-  for (const { domain, tabIds } of toCreate) {
+  for (const { windowId, domain, tabIds } of toCreate) {
     try {
-      const groupId = await groupInChunks(tabIds);
+      const groupId = await groupInChunks(tabIds, null, windowId);
       if (groupId != null) {
         const color = nextColor(domain, assignedColors);
         assignedColors.push(color);
@@ -408,13 +419,15 @@ async function runGrouping({ requireIdle = false } = {}) {
 }
 
 // 恢复全部会话或单组标签页
-async function restoreSession(timestamp, specificDomain = null) {
+export async function restoreSession(timestamp, specificDomain = null, specificGroupId = null) {
   const { sessions } = await chrome.storage.local.get('sessions');
   const snap = sessions?.[String(timestamp)];
   if (!snap) throw new Error('会话不存在: ' + timestamp);
 
   let targetTabs = (snap.tabs || []).filter((t) => t.url && !isInternalOrBlankUrl(t.url));
-  if (specificDomain) {
+  if (specificGroupId != null) {
+    targetTabs = targetTabs.filter((t) => t.groupId === specificGroupId);
+  } else if (specificDomain) {
     targetTabs = targetTabs.filter((t) => {
       if (t.groupTitle === specificDomain) return true;
       const d = extractDomain(t.url, { useRootDomain: true });
@@ -430,7 +443,7 @@ async function restoreSession(timestamp, specificDomain = null) {
   if (specificDomain) {
     try {
       const currentWin = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
-      if (currentWin?.id) {
+      if (currentWin?.id != null) {
         targetWindowId = currentWin.id;
       }
     } catch {
@@ -438,49 +451,42 @@ async function restoreSession(timestamp, specificDomain = null) {
     }
   }
 
-  const openedTabs = [];
-  if (targetWindowId) {
-    for (const item of targetTabs) {
-      try {
-        const t = await chrome.tabs.create({
-          windowId: targetWindowId,
-          url: item.url,
-          pinned: Boolean(item.pinned),
-          active: false,
-        });
-        openedTabs.push(t);
-      } catch (err) {
-        console.warn('[IceCola Tab Grouper] 标签创建失败:', err);
+  // 逐页保留对应关系；某一页创建失败不会让后续页面恢复到错误的分组。
+  const openedPairs = [];
+  const restoredWindows = new Map();
+  const placeholders = [];
+  for (const item of targetTabs) {
+    let windowId = targetWindowId;
+    if (windowId == null) {
+      const sourceWindow = specificDomain ? 'single-group' : (item.windowId ?? 'legacy');
+      if (!restoredWindows.has(sourceWindow)) {
+        const newWin = await chrome.windows.create({ url: 'about:blank', focused: false });
+        if (newWin?.id == null) throw new Error('无法创建恢复窗口');
+        restoredWindows.set(sourceWindow, newWin.id);
+        placeholders.push(...(newWin.tabs || []).map((tab) => tab.id));
       }
+      windowId = restoredWindows.get(sourceWindow);
     }
-  } else {
-    const urls = targetTabs.map((t) => t.url);
-    const newWin = await chrome.windows.create({ url: urls });
-    if (!newWin?.id) return { ok: true, restored: urls.length };
-    const tabsInWin = await chrome.tabs.query({ windowId: newWin.id });
-    openedTabs.push(...tabsInWin);
-
-    // 还原 pinned 状态
-    for (let i = 0; i < targetTabs.length && i < openedTabs.length; i++) {
-      if (targetTabs[i].pinned) {
-        try {
-          await chrome.tabs.update(openedTabs[i].id, { pinned: true });
-        } catch {}
-      }
+    try {
+      const opened = await chrome.tabs.create({ windowId, url: item.url, pinned: Boolean(item.pinned), active: false });
+      openedPairs.push({ orig: item, opened });
+    } catch (err) {
+      console.warn('[IceCola Tab Grouper] 标签创建失败:', err);
     }
   }
-
-  if (openedTabs.length === 0) return { ok: true, restored: 0 };
+  if (openedPairs.length === 0) return { ok: false, restored: 0, error: '没有页面恢复成功，请保留快照后重试。' };
+  for (const id of placeholders) {
+    try { await chrome.tabs.remove(id); } catch { /* 窗口已关闭 */ }
+  }
 
   // 还原标签分组结构
   const groupBuckets = new Map();
-  for (let i = 0; i < targetTabs.length && i < openedTabs.length; i++) {
-    const orig = targetTabs[i];
-    const opened = openedTabs[i];
-    if (orig.groupId != null || orig.groupTitle) {
-      const gid = orig.groupId ?? orig.groupTitle;
+  for (const { orig, opened } of openedPairs) {
+    if (!orig.pinned && (orig.groupId != null || orig.groupTitle)) {
+      const gid = opened.windowId + '|' + (orig.groupId ?? orig.groupTitle);
       if (!groupBuckets.has(gid)) {
         groupBuckets.set(gid, {
+          windowId: opened.windowId,
           title: orig.groupTitle || '',
           color: orig.groupColor || 'blue',
           tabIds: [],
@@ -490,10 +496,16 @@ async function restoreSession(timestamp, specificDomain = null) {
     }
   }
 
-  for (const { title, color, tabIds } of groupBuckets.values()) {
+  for (const { orig, opened } of openedPairs) {
+    if (orig.active) {
+      try { await chrome.tabs.update(opened.id, { active: true }); } catch { /* 页面已关闭 */ }
+    }
+  }
+
+  for (const { windowId, title, color, tabIds } of groupBuckets.values()) {
     if (tabIds.length === 0) continue;
     try {
-      const newGroupId = await chrome.tabs.group({ tabIds });
+      const newGroupId = await chrome.tabs.group({ tabIds, createProperties: { windowId } });
       const updateData = {};
       if (title) updateData.title = title;
       if (color) updateData.color = color;
@@ -506,7 +518,7 @@ async function restoreSession(timestamp, specificDomain = null) {
   }
 
   await updateBadge();
-  return { ok: true, restored: targetTabs.length };
+  return { ok: true, restored: openedPairs.length, failed: targetTabs.length - openedPairs.length };
 }
 
 // 获取当前活动窗口中的实时标签组列表
@@ -600,34 +612,43 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
   if (msg?.type === 'RESTORE_SESSION') {
-    restoreSession(msg.timestamp, msg.domain)
+    runExclusive(() => restoreSession(msg.timestamp, msg.domain, msg.groupId))
       .then((result) => sendResponse(result))
       .catch((err) => sendResponse({ ok: false, error: String(err) }));
     return true;
   }
   if (msg?.type === 'UPDATE_SETTINGS') {
-    setSettings(msg.settings).then(async (next) => {
+    runExclusive(async () => {
+      const next = await setSettings(msg.settings);
       await syncAlarm(next);
-      sendResponse({ ok: true, settings: next });
-    }).catch((err) => sendResponse({ ok: false, error: String(err) }));
+      return { ok: true, settings: next };
+    }).then(sendResponse);
     return true;
   }
   if (msg?.type === 'CLEAR_SESSIONS') {
-    clearAllSessions()
-      .then(() => sendResponse({ ok: true }))
+    runExclusive(async () => { await clearAllSessions(); return { ok: true }; })
+      .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: String(err) }));
     return true;
   }
   if (msg?.type === 'TOGGLE_PIN_SESSION') {
-    togglePinSession(msg.timestamp)
-      .then((pinned) => sendResponse({ ok: true, pinned }))
+    runExclusive(async () => ({ ok: true, pinned: await togglePinSession(msg.timestamp) }))
+      .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: String(err) }));
     return true;
   }
   if (msg?.type === 'RENAME_SESSION') {
-    renameSession(msg.timestamp, msg.title)
-      .then(() => sendResponse({ ok: true }))
+    runExclusive(async () => { await renameSession(msg.timestamp, msg.title); return { ok: true }; })
+      .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+  if (msg?.type === 'DELETE_SESSION') {
+    runExclusive(async () => { await deleteSession(msg.timestamp); return { ok: true }; }).then(sendResponse);
+    return true;
+  }
+  if (msg?.type === 'SAVE_SESSION') {
+    runExclusive(async () => ({ ok: true, session: await captureSessionSnapshot('手动保存', { force: true }) })).then(sendResponse);
     return true;
   }
   if (msg?.type === 'GET_LIVE_GROUPS') {

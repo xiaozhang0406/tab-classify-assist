@@ -2,6 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isDomainExcluded, groupByDomain } from '../lib/grouper.js';
 
+test('subdomain exclusions apply before root-domain aggregation', () => {
+  const tabs = [
+    { id: 1, url: 'https://private.example.com/a' },
+    { id: 2, url: 'https://private.example.com/b' },
+    { id: 3, url: 'https://public.example.com/c' },
+  ];
+  assert.equal(groupByDomain(tabs, 2, ['private.example.com']).size, 0);
+});
+
 test('isDomainExcluded matches exact domains and wildcards accurately', () => {
   const excluded = ['localhost', '*.internal.net', '127.0.0.1', 'corp.example.com'];
 

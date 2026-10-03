@@ -2,6 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeUrl, findDuplicates } from '../lib/dedupe.js';
 
+test('platform tracking rules require a real hostname boundary', () => {
+  for (const host of ['notbilibili.com', 'bilibili.com.example.org']) {
+    assert.equal(normalizeUrl(`https://${host}/?vd_source=keep`), `https://${host}/?vd_source=keep`);
+  }
+});
+
+test('authorization and session parameters remain part of page identity', () => {
+  for (const [host, key] of [['www.xiaohongshu.com', 'xsec_token'], ['mp.weixin.qq.com', 'pass_ticket'], ['mp.weixin.qq.com', 'sessionid']]) {
+    assert.notEqual(normalizeUrl(`https://${host}/?${key}=a`), normalizeUrl(`https://${host}/?${key}=b`));
+  }
+});
+
+test('active tabs in separate windows are both protected', () => {
+  const tabs = [1, 2].map((id) => ({ id, url: 'https://example.com/', active: true, windowId: id }));
+  assert.deepEqual(findDuplicates(tabs), []);
+});
+
 test('normalizeUrl strips general UTM and click trackers', () => {
   const url1 = 'https://example.com/article?utm_source=twitter&utm_medium=social&id=123';
   assert.equal(normalizeUrl(url1), 'https://example.com/article?id=123');
